@@ -36,7 +36,7 @@
 #include <math.h>
 #include <string.h>
 #include <ctime>
-
+#include <systemlib/mavlink_log.h>
 #include "ashtech.h"
 
 GPSDriverAshtech::GPSDriverAshtech(GPSCallbackPtr callback, void *callback_user,
@@ -44,7 +44,8 @@ GPSDriverAshtech::GPSDriverAshtech(GPSCallbackPtr callback, void *callback_user,
 				   struct satellite_info_s *satellite_info) :
 	GPSHelper(callback, callback_user),
 	_satellite_info(satellite_info),
-	_gps_position(gps_position)
+	_gps_position(gps_position),
+	_mavlink_log_pub(nullptr)
 {
 	decodeInit();
 	_decode_state = NME_DECODE_UNINIT;
@@ -58,8 +59,7 @@ GPSDriverAshtech::GPSDriverAshtech(GPSCallbackPtr callback, void *callback_user,
 
 int GPSDriverAshtech::handleMessage(int len)
 {
-	char *endp;
-
+	char *endp;	
 	if (len < 7) {
 		return 0;
 	}
@@ -74,6 +74,7 @@ int GPSDriverAshtech::handleMessage(int len)
 	int ret = 0;
 
 	if ((memcmp(_rx_buffer + 3, "ZDA,", 3) == 0) && (uiCalcComma == 6)) {
+		//PX4_ERR("zda");
 		/*
 		UTC day, month, and year, and local time zone offset
 		An example of the ZDA message string is:
@@ -156,6 +157,7 @@ int GPSDriverAshtech::handleMessage(int len)
 	}
 
 	else if ((memcmp(_rx_buffer + 3, "GGA,", 3) == 0) && (uiCalcComma == 14) && !_got_pashr_pos_message) {
+		//PX4_ERR("gga");
 		/*
 		  Time, position, and fix related data
 		  An example of the GBS message string is:
@@ -228,8 +230,10 @@ int GPSDriverAshtech::handleMessage(int len)
 		_gps_position->lat = static_cast<int>((int(lat * 0.01) + (lat * 0.01 - int(lat * 0.01)) * 100.0 / 60.0) * 10000000);
 		_gps_position->lon = static_cast<int>((int(lon * 0.01) + (lon * 0.01 - int(lon * 0.01)) * 100.0 / 60.0) * 10000000);
 		_gps_position->alt = static_cast<int>(alt * 1000);
+		_gps_position->satellites_used = num_of_sv;
+		_gps_position->hdop = (float)hdop ;
 		_rate_count_lat_lon++;
-
+		
 		if (fix_quality <= 0) {
 			_gps_position->fix_type = 0;
 
@@ -257,147 +261,9 @@ int GPSDriverAshtech::handleMessage(int len)
 		_gps_position->vel_ned_valid = true;                         /**< Flag to indicate if NED speed is valid */
 		_gps_position->c_variance_rad = 0.1f;
 		ret = 1;
-
-	} else if ((memcmp(_rx_buffer, "$PASHR,POS,", 11) == 0) && (uiCalcComma == 18)) {
-		_got_pashr_pos_message = true;
-		/*
-		Example $PASHR,POS,2,10,125410.00,5525.8138702,N,03833.9587380,E,131.555,1.0,0.0,0.007,-0.001,2.0,1.0,1.7,1.0,*34
-
-		    $PASHR,POS,d1,d2,m3,m4,c5,m6,c7,f8,f9,f10,f11,f12,f13,f14,f15,f16,s17*cc
-		    Parameter Description Range
-		      d1 Position mode 0: standalone
-		                       1: differential
-		                       2: RTK float
-		                       3: RTK fixed
-		                       5: Dead reckoning
-		                       9: SBAS (see NPT setting)
-		      d2 Number of satellite used in position fix 0-99
-		      m3 Current UTC time of position fix (hhmmss.ss) 000000.00-235959.99
-		      m4 Latitude of position (ddmm.mmmmmm) 0-90 degrees 00-59.9999999 minutes
-		      c5 Latitude sector N, S
-		      m6 Longitude of position (dddmm.mmmmmm) 0-180 degrees 00-59.9999999 minutes
-		      c7 Longitude sector E,W
-		      f8 Altitude above ellipsoid +9999.000
-		      f9 Differential age (data link age), seconds 0.0-600.0
-		      f10 True track/course over ground in degrees 0.0-359.9
-		      f11 Speed over ground in knots 0.0-999.9
-		      f12 Vertical velocity in decimeters per second +999.9
-		      f13 PDOP 0-99.9
-		      f14 HDOP 0-99.9
-		      f15 VDOP 0-99.9
-		      f16 TDOP 0-99.9
-		      s17 Reserved no data
-		      *cc Checksum
-		    */
-		bufptr = (char *)(_rx_buffer + 10);
-
-		/*
-		 * Ashtech would return empty space as coordinate (lat, lon or alt) if it doesn't have a fix yet
-		 */
-		int coordinatesFound = 0;
-		double ashtech_time __attribute__((unused)) = 0.0, lat = 0.0, lon = 0.0, alt = 0.0;
-		int num_of_sv __attribute__((unused)) = 0, fix_quality = 0;
-		double track_true = 0.0, ground_speed = 0.0, age_of_corr __attribute__((unused)) = 0.0;
-		double hdop = 99.9, vdop = 99.9,  pdop __attribute__((unused)) = 99.9,
-		       tdop __attribute__((unused)) = 99.9, vertic_vel = 0.0;
-		char ns = '?', ew = '?';
-
-		if (bufptr && *(++bufptr) != ',') { fix_quality = strtol(bufptr, &endp, 10); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { num_of_sv = strtol(bufptr, &endp, 10); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { ashtech_time = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') {
-			/*
-			 * if a coordinate is skipped (i.e. no fix), it either won't get into this block (two commas in a row)
-			 * or strtod won't find anything and endp will point exactly where bufptr is. The same is for lon and alt.
-			 */
-			lat = strtod(bufptr, &endp);
-
-			if (bufptr != endp) {coordinatesFound++;}
-
-			bufptr = endp;
-		}
-
-		if (bufptr && *(++bufptr) != ',') { ns = *(bufptr++); }
-
-		if (bufptr && *(++bufptr) != ',') {
-			lon = strtod(bufptr, &endp);
-
-			if (bufptr != endp) {coordinatesFound++;}
-
-			bufptr = endp;
-		}
-
-		if (bufptr && *(++bufptr) != ',') { ew = *(bufptr++); }
-
-		if (bufptr && *(++bufptr) != ',') {
-			alt = strtod(bufptr, &endp);
-
-			if (bufptr != endp) {coordinatesFound++;}
-
-			bufptr = endp;
-		}
-
-		if (bufptr && *(++bufptr) != ',') { age_of_corr = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { track_true = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { ground_speed = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { vertic_vel = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { pdop = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { hdop = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { vdop = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { tdop = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (ns == 'S') {
-			lat = -lat;
-		}
-
-		if (ew == 'W') {
-			lon = -lon;
-		}
-
-		_gps_position->lat = static_cast<int>((int(lat * 0.01) + (lat * 0.01 - int(lat * 0.01)) * 100.0 / 60.0) * 10000000);
-		_gps_position->lon = static_cast<int>((int(lon * 0.01) + (lon * 0.01 - int(lon * 0.01)) * 100.0 / 60.0) * 10000000);
-		_gps_position->alt = static_cast<int>(alt * 1000);
-		_gps_position->hdop = (float)hdop / 100.0f;
-		_gps_position->vdop = (float)vdop / 100.0f;
-		_rate_count_lat_lon++;
-
-		if (coordinatesFound < 3) {
-			_gps_position->fix_type = 0;
-
-		} else {
-			_gps_position->fix_type = 3 + fix_quality;
-		}
-
-		_gps_position->timestamp = gps_absolute_time();
-
-		float track_rad = static_cast<float>(track_true) * M_PI_F / 180.0f;
-
-		float velocity_ms = static_cast<float>(ground_speed) / 1.9438445f;			/** knots to m/s */
-		float velocity_north = static_cast<float>(velocity_ms) * cosf(track_rad);
-		float velocity_east  = static_cast<float>(velocity_ms) * sinf(track_rad);
-
-		_gps_position->vel_m_s = velocity_ms;				/** GPS ground speed (m/s) */
-		_gps_position->vel_n_m_s = velocity_north;			/** GPS ground speed in m/s */
-		_gps_position->vel_e_m_s = velocity_east;			/** GPS ground speed in m/s */
-		_gps_position->vel_d_m_s = static_cast<float>(-vertic_vel);				/** GPS ground speed in m/s */
-		_gps_position->cog_rad =
-			track_rad;				/** Course over ground (NOT heading, but direction of movement) in rad, -PI..PI */
-		_gps_position->vel_ned_valid = true;				/** Flag to indicate if NED speed is valid */
-		_gps_position->c_variance_rad = 0.1f;
-		_rate_count_vel++;
-		ret = 1;
-
+	
 	} else if ((memcmp(_rx_buffer + 3, "GST,", 3) == 0) && (uiCalcComma == 8)) {
+		//PX4_ERR("gst");
 		/*
 		  Position error statistics
 		  An example of the GST message string is:
@@ -448,96 +314,128 @@ int GPSDriverAshtech::handleMessage(int len)
 
 		_gps_position->s_variance_m_s = 0;
 
-	} else if ((memcmp(_rx_buffer + 3, "GSV,", 3) == 0)) {
+	} else if ((memcmp(_rx_buffer + 3, "HDT,", 2) == 0)) {
+		//PX4_ERR("HDT");
 		/*
-		  The GSV message string identifies the number of SVs in view, the PRN numbers, elevations, azimuths, and SNR values. An example of the GSV message string is:
+		Heading message
+		Example $GPHDT,121.2,T*35
 
-		  $GPGSV,4,1,13,02,02,213,,03,-3,000,,11,00,121,,14,13,172,05*67
-
-		  GSV message fields
-		  Field   Meaning
-		  0   Message ID $GPGSV
-		  1   Total number of messages of this type in this cycle
-		  2   Message number
-		  3   Total number of SVs visible
-		  4   SV PRN number
-		  5   Elevation, in degrees, 90 maximum
-		  6   Azimuth, degrees from True North, 000 through 359
-		  7   SNR, 00 through 99 dB (null when not tracking)
-		  8-11    Information about second SV, same format as fields 4 through 7
-		  12-15   Information about third SV, same format as fields 4 through 7
-		  16-19   Information about fourth SV, same format as fields 4 through 7
-		  20  The checksum data, always begins with *
-		*/
-		/*
-		 * currently process only gps, because do not know what
-		 * Global satellite ID I should use for non GPS sats
+		f1 Last computed heading value, in degrees (0-359.99)
+		T “T” for “True”
 		 */
-		bool bGPS = false;
 
-		if (memcmp(_rx_buffer, "$GP", 3) != 0) {
-			return 0;
+		float heading = 0.f;
 
-		} else {
-			bGPS = true;
-		}
+		if (bufptr && *(++bufptr) != ',') {
+			heading = strtof(bufptr, &endp); bufptr = endp;
+			
+			heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
+			// heading -= _heading_offset; // range: [-pi, 3pi]
 
-		int all_msg_num = 0, this_msg_num = 0, tot_sv_visible = 0;
-		struct gsv_sat {
-			int svid;
-			int elevation;
-			int azimuth;
-			int snr;
-		} sat[4];
-		memset(sat, 0, sizeof(sat));
-
-		if (bufptr && *(++bufptr) != ',') { all_msg_num = strtol(bufptr, &endp, 10); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { this_msg_num = strtol(bufptr, &endp, 10); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { tot_sv_visible = strtol(bufptr, &endp, 10); bufptr = endp; }
-
-		if ((this_msg_num < 1) || (this_msg_num > all_msg_num)) {
-			return 0;
-		}
-
-		if (this_msg_num == 0 && bGPS && _satellite_info) {
-			memset(_satellite_info->svid,     0, sizeof(_satellite_info->svid));
-			memset(_satellite_info->used,     0, sizeof(_satellite_info->used));
-			memset(_satellite_info->snr,      0, sizeof(_satellite_info->snr));
-			memset(_satellite_info->elevation, 0, sizeof(_satellite_info->elevation));
-			memset(_satellite_info->azimuth,  0, sizeof(_satellite_info->azimuth));
-		}
-
-		int end = 4;
-
-		if (this_msg_num == all_msg_num) {
-			end =  tot_sv_visible - (this_msg_num - 1) * 4;
-			_gps_position->satellites_used = tot_sv_visible;
-
-			if (_satellite_info) {
-				_satellite_info->count = satellite_info_s::SAT_INFO_MAX_SATELLITES;
-				_satellite_info->timestamp = gps_absolute_time();
+			if (heading > M_PI_F) {
+				heading -= 2.f * M_PI_F; // final range is [-pi, pi]
 			}
+
+			//_gps_position->heading = heading;
 		}
 
-		if (_satellite_info) {
-			for (int y = 0 ; y < end ; y++) {
-				if (bufptr && *(++bufptr) != ',') { sat[y].svid = strtol(bufptr, &endp, 10); bufptr = endp; }
+	}
 
-				if (bufptr && *(++bufptr) != ',') { sat[y].elevation = strtol(bufptr, &endp, 10); bufptr = endp; }
+	//}else if ((memcmp(_rx_buffer + 3, "GSV,", 3) == 0)) {
+	// 	PX4_ERR("gsv");
+	// 	/*
+	// 	  The GSV message string identifies the number of SVs in view, the PRN numbers, elevations, azimuths, and SNR values. An example of the GSV message string is:
 
-				if (bufptr && *(++bufptr) != ',') { sat[y].azimuth = strtol(bufptr, &endp, 10); bufptr = endp; }
+	// 	  $GPGSV,4,1,13,02,02,213,,03,-3,000,,11,00,121,,14,13,172,05*67
 
-				if (bufptr && *(++bufptr) != ',') { sat[y].snr = strtol(bufptr, &endp, 10); bufptr = endp; }
+	// 	  GSV message fields
+	// 	  Field   Meaning
+	// 	  0   Message ID $GPGSV
+	// 	  1   Total number of messages of this type in this cycle
+	// 	  2   Message number
+	// 	  3   Total number of SVs visible
+	// 	  4   SV PRN number
+	// 	  5   Elevation, in degrees, 90 maximum
+	// 	  6   Azimuth, degrees from True North, 000 through 359
+	// 	  7   SNR, 00 through 99 dB (null when not tracking)
+	// 	  8-11    Information about second SV, same format as fields 4 through 7
+	// 	  12-15   Information about third SV, same format as fields 4 through 7
+	// 	  16-19   Information about fourth SV, same format as fields 4 through 7
+	// 	  20  The checksum data, always begins with *
+	// 	*/
+	// 	/*
+	// 	 * currently process only gps, because do not know what
+	// 	 * Global satellite ID I should use for non GPS sats
+	// 	 */
+	// 	bool bGPS = false;
 
-				_satellite_info->svid[y + (this_msg_num - 1) * 4]      = sat[y].svid;
-				_satellite_info->used[y + (this_msg_num - 1) * 4]      = (sat[y].snr > 0);
-				_satellite_info->snr[y + (this_msg_num - 1) * 4]       = sat[y].snr;
-				_satellite_info->elevation[y + (this_msg_num - 1) * 4] = sat[y].elevation;
-				_satellite_info->azimuth[y + (this_msg_num - 1) * 4]   = sat[y].azimuth;
-			}
-		}
+	// 	if (memcmp(_rx_buffer, "$GP", 3) != 0) {
+	// 		return 0;
+
+	// 	} else {
+	// 		bGPS = true;
+	// 	}
+
+	// 	int all_msg_num = 0, this_msg_num = 0, tot_sv_visible = 0;
+	// 	struct gsv_sat {
+	// 		int svid;
+	// 		int elevation;
+	// 		int azimuth;
+	// 		int snr;
+	// 	} sat[4];
+	// 	memset(sat, 0, sizeof(sat));
+
+	// 	if (bufptr && *(++bufptr) != ',') { all_msg_num = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 	if (bufptr && *(++bufptr) != ',') { this_msg_num = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 	if (bufptr && *(++bufptr) != ',') { tot_sv_visible = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 	if ((this_msg_num < 1) || (this_msg_num > all_msg_num)) {
+	// 		return 0;
+	// 	}
+
+	// 	if (this_msg_num == 0 && bGPS && _satellite_info) {
+	// 		memset(_satellite_info->svid,     0, sizeof(_satellite_info->svid));
+	// 		memset(_satellite_info->used,     0, sizeof(_satellite_info->used));
+	// 		memset(_satellite_info->snr,      0, sizeof(_satellite_info->snr));
+	// 		memset(_satellite_info->elevation, 0, sizeof(_satellite_info->elevation));
+	// 		memset(_satellite_info->azimuth,  0, sizeof(_satellite_info->azimuth));
+	// 	}
+
+	// 	int end = 4;
+
+	// 	if (this_msg_num == all_msg_num) {
+	// 		end =  tot_sv_visible - (this_msg_num - 1) * 4;
+	// 		_gps_position->satellites_used = tot_sv_visible;
+
+	// 		if (_satellite_info) {
+	// 			_satellite_info->count = satellite_info_s::SAT_INFO_MAX_SATELLITES;
+	// 			_satellite_info->timestamp = gps_absolute_time();
+	// 		}
+	// 	}
+
+	// 	if (_satellite_info) {
+	// 		for (int y = 0 ; y < end ; y++) {
+	// 			if (bufptr && *(++bufptr) != ',') { sat[y].svid = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 			if (bufptr && *(++bufptr) != ',') { sat[y].elevation = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 			if (bufptr && *(++bufptr) != ',') { sat[y].azimuth = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 			if (bufptr && *(++bufptr) != ',') { sat[y].snr = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 			_satellite_info->svid[y + (this_msg_num - 1) * 4]      = sat[y].svid;
+	// 			_satellite_info->used[y + (this_msg_num - 1) * 4]      = (sat[y].snr > 0);
+	// 			_satellite_info->snr[y + (this_msg_num - 1) * 4]       = sat[y].snr;
+	// 			_satellite_info->elevation[y + (this_msg_num - 1) * 4] = sat[y].elevation;
+	// 			_satellite_info->azimuth[y + (this_msg_num - 1) * 4]   = sat[y].azimuth;
+	// 		}
+	// 	}
+	//}
+	else 
+	{		
+		PX4_ERR("%c %c %c %c %c",_rx_buffer[0],_rx_buffer[1],_rx_buffer[2],_rx_buffer[3],_rx_buffer[4]);
 	}
 
 	if (ret > 0) {
@@ -551,7 +449,7 @@ int GPSDriverAshtech::handleMessage(int len)
 int GPSDriverAshtech::receive(unsigned timeout)
 {
 	{
-
+		uint8_t receiveFlag = 0;
 		uint8_t buf[GPS_READ_BUFFER_SIZE];
 
 		/* timeout additional to poll */
@@ -561,28 +459,32 @@ int GPSDriverAshtech::receive(unsigned timeout)
 		ssize_t bytes_count = 0;
 
 		while (true) {
-
+			receiveFlag = 0;
 			/* pass received bytes to the packet decoder */
 			while (j < bytes_count) {
 				int l = 0;
 
 				if ((l = parseChar(buf[j])) > 0) {
+					//PX4_ERR("l:%d",l);
 					/* return to configure during configuration or to the gps driver during normal work
 					 * if a packet has arrived */
 					if (handleMessage(l) > 0) {
-						return 1;
+						receiveFlag = 1;
 					}
 				}
 
 				j++;
 			}
-
+			if(receiveFlag == 1)
+			{
+				return 1;
+			}
 			/* everything is read */
 			j = bytes_count = 0;
 
 			/* then poll or read for new data */
 			int ret = read(buf, sizeof(buf), timeout * 2);
-
+			//PX4_ERR("ret:%d",ret);
 			if (ret < 0) {
 				/* something went wrong when polling */
 				return -1;
@@ -674,7 +576,7 @@ void GPSDriverAshtech::decodeInit()
 /*
  * ashtech board configuration script
  */
-
+/*
 const char comm[] = "$PASHS,POP,20\r\n"\
 		    "$PASHS,NME,ZDA,B,ON,3\r\n"\
 		    "$PASHS,NME,GGA,B,OFF\r\n"\
@@ -683,7 +585,7 @@ const char comm[] = "$PASHS,POP,20\r\n"\
 		    "$PASHS,NME,GSV,B,ON,3\r\n"\
 		    "$PASHS,SPD,A,8\r\n"\
 		    "$PASHS,SPD,B,9\r\n";
-
+*/
 int GPSDriverAshtech::configure(unsigned &baudrate, OutputMode output_mode)
 {
 	if (output_mode != OutputMode::GPS) {
@@ -691,18 +593,6 @@ int GPSDriverAshtech::configure(unsigned &baudrate, OutputMode output_mode)
 		return -1;
 	}
 
-	/* try different baudrates */
-	const unsigned baudrates_to_try[] = {9600, 38400, 19200, 57600, 115200};
-
-
-	for (unsigned int baud_i = 0; baud_i < sizeof(baudrates_to_try) / sizeof(baudrates_to_try[0]); baud_i++) {
-		baudrate = baudrates_to_try[baud_i];
-		setBaudrate(baudrate);
-
-		if (write(comm, sizeof(comm)) != sizeof(comm)) {
-			return -1;
-		}
-	}
 
 	return setBaudrate(115200);
 }

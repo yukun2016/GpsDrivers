@@ -83,5 +83,6 @@ private:
 	bool _got_pashr_pos_message{false}; /**< If we got a PASHR,POS message, we will ignore GGA messages */
 	bool _parse_error{}; /**< parse error flag */
 	char *_parse_pos{}; /**< parse position */
+	orb_advert_t	_mavlink_log_pub;
 };
 
