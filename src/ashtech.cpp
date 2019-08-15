@@ -73,64 +73,190 @@ int GPSDriverAshtech::handleMessage(int len)
 	char *bufptr = (char *)(_rx_buffer + 6);
 	int ret = 0;
 
-	if ((memcmp(_rx_buffer + 3, "ZDA,", 3) == 0) && (uiCalcComma == 6)) {
-		//PX4_ERR("zda");
-		/*
-		UTC day, month, and year, and local time zone offset
-		An example of the ZDA message string is:
+// 	if ((memcmp(_rx_buffer + 3, "ZDA,", 3) == 0) && (uiCalcComma == 6)) {
+// 		PX4_ERR("zda");
+// 		/*
+// 		UTC day, month, and year, and local time zone offset
+// 		An example of the ZDA message string is:
 
-		$GPZDA,172809.456,12,07,1996,00,00*45
+// 		$GPZDA,172809.456,12,07,1996,00,00*45
 
-		ZDA message fields
-		Field	Meaning
-		0	Message ID $GPZDA
-		1	UTC
-		2	Day, ranging between 01 and 31
-		3	Month, ranging between 01 and 12
-		4	Year
-		5	Local time zone offset from GMT, ranging from 00 through 13 hours
-		6	Local time zone offset from GMT, ranging from 00 through 59 minutes
-		7	The checksum data, always begins with *
-		Fields 5 and 6 together yield the total offset. For example, if field 5 is -5 and field 6 is +15, local time is 5 hours and 15 minutes earlier than GMT.
-		*/
-		double ashtech_time = 0.0;
-		int day = 0, month = 0, year = 0, local_time_off_hour __attribute__((unused)) = 0,
-		    local_time_off_min __attribute__((unused)) = 0;
+// 		ZDA message fields
+// 		Field	Meaning
+// 		0	Message ID $GPZDA
+// 		1	UTC
+// 		2	Day, ranging between 01 and 31
+// 		3	Month, ranging between 01 and 12
+// 		4	Year
+// 		5	Local time zone offset from GMT, ranging from 00 through 13 hours
+// 		6	Local time zone offset from GMT, ranging from 00 through 59 minutes
+// 		7	The checksum data, always begins with *
+// 		Fields 5 and 6 together yield the total offset. For example, if field 5 is -5 and field 6 is +15, local time is 5 hours and 15 minutes earlier than GMT.
+// 		*/
+// 		double ashtech_time = 0.0;
+// 		int day = 0, month = 0, year = 0, local_time_off_hour __attribute__((unused)) = 0,
+// 		    local_time_off_min __attribute__((unused)) = 0;
 
-		if (bufptr && *(++bufptr) != ',') { ashtech_time = strtod(bufptr, &endp); bufptr = endp; }
+// 		if (bufptr && *(++bufptr) != ',') { ashtech_time = strtod(bufptr, &endp); bufptr = endp; }
 
-		if (bufptr && *(++bufptr) != ',') { day = strtol(bufptr, &endp, 10); bufptr = endp; }
+// 		if (bufptr && *(++bufptr) != ',') { day = strtol(bufptr, &endp, 10); bufptr = endp; }
 
-		if (bufptr && *(++bufptr) != ',') { month = strtol(bufptr, &endp, 10); bufptr = endp; }
+// 		if (bufptr && *(++bufptr) != ',') { month = strtol(bufptr, &endp, 10); bufptr = endp; }
 
-		if (bufptr && *(++bufptr) != ',') { year = strtol(bufptr, &endp, 10); bufptr = endp; }
+// 		if (bufptr && *(++bufptr) != ',') { year = strtol(bufptr, &endp, 10); bufptr = endp; }
 
-		if (bufptr && *(++bufptr) != ',') { local_time_off_hour = strtol(bufptr, &endp, 10); bufptr = endp; }
+// 		if (bufptr && *(++bufptr) != ',') { local_time_off_hour = strtol(bufptr, &endp, 10); bufptr = endp; }
 
-		if (bufptr && *(++bufptr) != ',') { local_time_off_min = strtol(bufptr, &endp, 10); bufptr = endp; }
+// 		if (bufptr && *(++bufptr) != ',') { local_time_off_min = strtol(bufptr, &endp, 10); bufptr = endp; }
 
 
-		int ashtech_hour = static_cast<int>(ashtech_time / 10000);
-		int ashtech_minute = static_cast<int>((ashtech_time - ashtech_hour * 10000) / 100);
-		double ashtech_sec = static_cast<double>(ashtech_time - ashtech_hour * 10000 - ashtech_minute * 100);
+// 		int ashtech_hour = static_cast<int>(ashtech_time / 10000);
+// 		int ashtech_minute = static_cast<int>((ashtech_time - ashtech_hour * 10000) / 100);
+// 		double ashtech_sec = static_cast<double>(ashtech_time - ashtech_hour * 10000 - ashtech_minute * 100);
+
+// 		/*
+// 		 * convert to unix timestamp
+// 		 */
+// 		struct tm timeinfo = {};
+// 		timeinfo.tm_year = year - 1900;
+// 		timeinfo.tm_mon = month - 1;
+// 		timeinfo.tm_mday = day;
+// 		timeinfo.tm_hour = ashtech_hour;
+// 		timeinfo.tm_min = ashtech_minute;
+// 		timeinfo.tm_sec = int(ashtech_sec);
+// 		timeinfo.tm_isdst = 0;
+
+// #ifndef NO_MKTIME
+// 		time_t epoch = mktime(&timeinfo);
+
+// 		if (epoch > GPS_EPOCH_SECS) {
+// 			uint64_t usecs = static_cast<uint64_t>((ashtech_sec - static_cast<uint64_t>(ashtech_sec))) * 1000000;
+
+// 			// FMUv2+ boards have a hardware RTC, but GPS helps us to configure it
+// 			// and control its drift. Since we rely on the HRT for our monotonic
+// 			// clock, updating it from time to time is safe.
+
+// 			timespec ts{};
+// 			ts.tv_sec = epoch;
+// 			ts.tv_nsec = usecs * 1000;
+
+// 			setClock(ts);
+
+// 			_gps_position->time_utc_usec = static_cast<uint64_t>(epoch) * 1000000ULL;
+// 			_gps_position->time_utc_usec += usecs;
+
+// 		} else {
+// 			_gps_position->time_utc_usec = 0;
+// 		}
+
+// #else
+// 		_gps_position->time_utc_usec = 0;
+// #endif
+
+// 		_last_timestamp_time = gps_absolute_time();
+// 	}
+	//else 
+	if ((memcmp(_rx_buffer, "$GPNAV,", 6) == 0) && (uiCalcComma == 36) ) {
+		//PX4_ERR("GPNAV");
+		int sinan_date = 0.0;
+		double sinan_utc = 0.0;
+		int gps_leap_second __attribute__((unused)) = 0,
+			bds_leap_second __attribute__((unused)) = 0,
+			reserved1 __attribute__((unused)) = 0;
+
+		double lat = 0.0, lon = 0.0, alt = 0.0;
+		double separation __attribute__((unused)) = 0,
+		trackingAngle __attribute__((unused)) = 0,
+		heading __attribute__((unused)) = 0,//will be use
+		pitch __attribute__((unused)) = 0,
+		roll __attribute__((unused)) = 0,
+		ve = 0.0, vn = 0.0, vu = 0.0,vg = 0.0;
+		int status1 = 0,
+		status2 __attribute__((unused)) = 0,
+		systemMask __attribute__((unused)) = 0;
+		double baseline __attribute__((unused)) = 0;
+		char svUsed[5] = {0};
+		char svTracked[5] __attribute__((unused)) = {0};
+
+		if (bufptr && *(++bufptr) != ',') { sinan_date = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { sinan_utc = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { gps_leap_second = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { bds_leap_second = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { reserved1 = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { lat = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { lon = strtod(bufptr, &endp); bufptr = endp; }
+		
+		if (bufptr && *(++bufptr) != ',') { alt = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { separation = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { trackingAngle = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { heading = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { pitch = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { roll = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { ve = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { vn = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { vu = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { vg = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { status1 = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { status2 = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { baseline = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { svUsed[0] = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { svUsed[1]  = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { svUsed[2]  = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { svUsed[3]  = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { svUsed[4]  = strtod(bufptr, &endp); bufptr = endp; }
+
+//time set
+		
+		int sinan_year = static_cast<int>(sinan_date / 10000);
+		int sinan_mon = static_cast<int>((sinan_date %10000) / 100);
+		int sinan_day = static_cast<int>((sinan_date %100));
+
+
+		
+		int sinan_hour = static_cast<int>(sinan_utc / 10000);
+		int sinan_minute = static_cast<int>((sinan_utc - sinan_hour * 10000) / 100);
+		double sinan_sec = static_cast<double>(sinan_utc - sinan_hour * 10000 - sinan_minute * 100);
 
 		/*
 		 * convert to unix timestamp
 		 */
 		struct tm timeinfo = {};
-		timeinfo.tm_year = year - 1900;
-		timeinfo.tm_mon = month - 1;
-		timeinfo.tm_mday = day;
-		timeinfo.tm_hour = ashtech_hour;
-		timeinfo.tm_min = ashtech_minute;
-		timeinfo.tm_sec = int(ashtech_sec);
+		timeinfo.tm_year = sinan_year - 1900;
+		timeinfo.tm_mon = sinan_mon - 1;
+		timeinfo.tm_mday = sinan_day;
+		timeinfo.tm_hour = sinan_hour;
+		timeinfo.tm_min = sinan_minute;
+		timeinfo.tm_sec = int(sinan_sec);
 		timeinfo.tm_isdst = 0;
 
 #ifndef NO_MKTIME
 		time_t epoch = mktime(&timeinfo);
 
 		if (epoch > GPS_EPOCH_SECS) {
-			uint64_t usecs = static_cast<uint64_t>((ashtech_sec - static_cast<uint64_t>(ashtech_sec))) * 1000000;
+			uint64_t usecs = static_cast<uint64_t>((sinan_sec - static_cast<uint64_t>(sinan_sec))) * 1000000;
 
 			// FMUv2+ boards have a hardware RTC, but GPS helps us to configure it
 			// and control its drift. Since we rely on the HRT for our monotonic
@@ -154,87 +280,20 @@ int GPSDriverAshtech::handleMessage(int len)
 #endif
 
 		_last_timestamp_time = gps_absolute_time();
-	}
+		_gps_position->timestamp = gps_absolute_time();
 
-	else if ((memcmp(_rx_buffer + 3, "GGA,", 3) == 0) && (uiCalcComma == 14) && !_got_pashr_pos_message) {
-		//PX4_ERR("gga");
-		/*
-		  Time, position, and fix related data
-		  An example of the GBS message string is:
-
-		  $GPGGA,172814.0,3723.46587704,N,12202.26957864,W,2,6,1.2,18.893,M,-25.669,M,2.0,0031*4F
-
-		  Note - The data string exceeds the ASHTECH standard length.
-		  GGA message fields
-		  Field   Meaning
-		  0   Message ID $GPGGA
-		  1   UTC of position fix
-		  2   Latitude
-		  3   Direction of latitude:
-		  N: North
-		  S: South
-		  4   Longitude
-		  5   Direction of longitude:
-		  E: East
-		  W: West
-		  6   GPS Quality indicator:
-		  0: Fix not valid
-		  1: GPS fix
-		  2: Differential GPS fix, OmniSTAR VBS
-		  4: Real-Time Kinematic, fixed integers
-		  5: Real-Time Kinematic, float integers, OmniSTAR XP/HP or Location RTK
-		  7   Number of SVs in use, range from 00 through to 24+
-		  8   HDOP
-		  9   Orthometric height (MSL reference)
-		  10  M: unit of measure for orthometric height is meters
-		  11  Geoid separation
-		  12  M: geoid separation measured in meters
-		  13  Age of differential GPS data record, Type 1 or Type 9. Null field when DGPS is not used.
-		  14  Reference station ID, range 0000-4095. A null field when any reference station ID is selected and no corrections are received1.
-		  15
-		  The checksum data, always begins with *
-		  Note - If a user-defined geoid model, or an inclined
-		*/
-		double ashtech_time __attribute__((unused)) = 0.0, lat = 0.0, lon = 0.0, alt = 0.0;
-		int num_of_sv __attribute__((unused)) = 0, fix_quality = 0;
-		double hdop __attribute__((unused)) = 99.9;
-		char ns = '?', ew = '?';
-
-		if (bufptr && *(++bufptr) != ',') { ashtech_time = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { lat = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { ns = *(bufptr++); }
-
-		if (bufptr && *(++bufptr) != ',') { lon = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { ew = *(bufptr++); }
-
-		if (bufptr && *(++bufptr) != ',') { fix_quality = strtol(bufptr, &endp, 10); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { num_of_sv = strtol(bufptr, &endp, 10); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { hdop = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (bufptr && *(++bufptr) != ',') { alt = strtod(bufptr, &endp); bufptr = endp; }
-
-		if (ns == 'S') {
-			lat = -lat;
-		}
-
-		if (ew == 'W') {
-			lon = -lon;
-		}
-
-		/* convert from degrees, minutes and seconds to degrees * 1e7 */
-		_gps_position->lat = static_cast<int>((int(lat * 0.01) + (lat * 0.01 - int(lat * 0.01)) * 100.0 / 60.0) * 10000000);
-		_gps_position->lon = static_cast<int>((int(lon * 0.01) + (lon * 0.01 - int(lon * 0.01)) * 100.0 / 60.0) * 10000000);
+//lat lon alt
+		_gps_position->lat = static_cast<int>((lat) * 10000000);
+		_gps_position->lon = static_cast<int>((lon) * 10000000);
 		_gps_position->alt = static_cast<int>(alt * 1000);
-		_gps_position->satellites_used = num_of_sv;
-		_gps_position->hdop = (float)hdop ;
-		_rate_count_lat_lon++;
-		
-		if (fix_quality <= 0) {
+
+		_gps_position->vel_m_s = vg;				/** GPS ground speed (m/s) */
+		_gps_position->vel_n_m_s = vn;			/** GPS ground speed in m/s */
+		_gps_position->vel_e_m_s = ve;			/** GPS ground speed in m/s */
+		_gps_position->vel_d_m_s = static_cast<float>(-vu);				/** GPS ground speed in m/s */
+
+//fix type
+		if (status1 <= 0) {
 			_gps_position->fix_type = 0;
 
 		} else {
@@ -242,27 +301,134 @@ int GPSDriverAshtech::handleMessage(int len)
 			 * in this NMEA message float integers (value 5) mode has higher value than fixed integers (value 4), whereas it provides lower quality,
 			 * and since value 3 is not being used, I "moved" value 5 to 3 to add it to _gps_position->fix_type
 			 */
-			if (fix_quality == 5) { fix_quality = 3; }
-
+			if (status1 == 5)
+			{
+				status1 = 3; 
+			}
 			/*
 			 * fix quality 1 means just a normal 3D fix, so I'm subtracting 1 here. This way we'll have 3 for auto, 4 for DGPS, 5 for floats, 6 for fixed.
 			 */
-			_gps_position->fix_type = 3 + fix_quality - 1;
+			_gps_position->fix_type = 3 + status1 - 1;
+			_gps_position->vel_ned_valid = true;                         /**< Flag to indicate if NED speed is valid */
 		}
 
-		_gps_position->timestamp = gps_absolute_time();
+		_gps_position->satellites_used = svUsed[0] + svUsed[1]+svUsed[2]+svUsed[3]+svUsed[4];
 
-		_gps_position->vel_m_s = 0;                                  /**< GPS ground speed (m/s) */
-		_gps_position->vel_n_m_s = 0;                                /**< GPS ground speed in m/s */
-		_gps_position->vel_e_m_s = 0;                                /**< GPS ground speed in m/s */
-		_gps_position->vel_d_m_s = 0;                                /**< GPS ground speed in m/s */
 		_gps_position->cog_rad =
 			0;                                  /**< Course over ground (NOT heading, but direction of movement) in rad, -PI..PI */
-		_gps_position->vel_ned_valid = true;                         /**< Flag to indicate if NED speed is valid */
+		
 		_gps_position->c_variance_rad = 0.1f;
 		ret = 1;
+
+	}
+	// else if ((memcmp(_rx_buffer + 3, "GGA,", 3) == 0) && (uiCalcComma == 14) && !_got_pashr_pos_message) {
+	// 	PX4_ERR("gga");
+	// 	/*
+	// 	  Time, position, and fix related data
+	// 	  An example of the GBS message string is:
+
+	// 	  $GPGGA,172814.0,3723.46587704,N,12202.26957864,W,2,6,1.2,18.893,M,-25.669,M,2.0,0031*4F
+
+	// 	  Note - The data string exceeds the ASHTECH standard length.
+	// 	  GGA message fields
+	// 	  Field   Meaning
+	// 	  0   Message ID $GPGGA
+	// 	  1   UTC of position fix
+	// 	  2   Latitude
+	// 	  3   Direction of latitude:
+	// 	  N: North
+	// 	  S: South
+	// 	  4   Longitude
+	// 	  5   Direction of longitude:
+	// 	  E: East
+	// 	  W: West
+	// 	  6   GPS Quality indicator:
+	// 	  0: Fix not valid
+	// 	  1: GPS fix
+	// 	  2: Differential GPS fix, OmniSTAR VBS
+	// 	  4: Real-Time Kinematic, fixed integers
+	// 	  5: Real-Time Kinematic, float integers, OmniSTAR XP/HP or Location RTK
+	// 	  7   Number of SVs in use, range from 00 through to 24+
+	// 	  8   HDOP
+	// 	  9   Orthometric height (MSL reference)
+	// 	  10  M: unit of measure for orthometric height is meters
+	// 	  11  Geoid separation
+	// 	  12  M: geoid separation measured in meters
+	// 	  13  Age of differential GPS data record, Type 1 or Type 9. Null field when DGPS is not used.
+	// 	  14  Reference station ID, range 0000-4095. A null field when any reference station ID is selected and no corrections are received1.
+	// 	  15
+	// 	  The checksum data, always begins with *
+	// 	  Note - If a user-defined geoid model, or an inclined
+	// 	*/
+	// 	double ashtech_time __attribute__((unused)) = 0.0, lat = 0.0, lon = 0.0, alt = 0.0;
+	// 	int num_of_sv __attribute__((unused)) = 0, fix_quality = 0;
+	// 	double hdop __attribute__((unused)) = 99.9;
+	// 	char ns = '?', ew = '?';
+
+	// 	if (bufptr && *(++bufptr) != ',') { ashtech_time = strtod(bufptr, &endp); bufptr = endp; }
+
+	// 	if (bufptr && *(++bufptr) != ',') { lat = strtod(bufptr, &endp); bufptr = endp; }
+
+	// 	if (bufptr && *(++bufptr) != ',') { ns = *(bufptr++); }
+
+	// 	if (bufptr && *(++bufptr) != ',') { lon = strtod(bufptr, &endp); bufptr = endp; }
+
+	// 	if (bufptr && *(++bufptr) != ',') { ew = *(bufptr++); }
+
+	// 	if (bufptr && *(++bufptr) != ',') { fix_quality = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 	if (bufptr && *(++bufptr) != ',') { num_of_sv = strtol(bufptr, &endp, 10); bufptr = endp; }
+
+	// 	if (bufptr && *(++bufptr) != ',') { hdop = strtod(bufptr, &endp); bufptr = endp; }
+
+	// 	if (bufptr && *(++bufptr) != ',') { alt = strtod(bufptr, &endp); bufptr = endp; }
+
+	// 	if (ns == 'S') {
+	// 		lat = -lat;
+	// 	}
+
+	// 	if (ew == 'W') {
+	// 		lon = -lon;
+	// 	}
+
+	// 	/* convert from degrees, minutes and seconds to degrees * 1e7 */
+	// 	_gps_position->lat = static_cast<int>((int(lat * 0.01) + (lat * 0.01 - int(lat * 0.01)) * 100.0 / 60.0) * 10000000);
+	// 	_gps_position->lon = static_cast<int>((int(lon * 0.01) + (lon * 0.01 - int(lon * 0.01)) * 100.0 / 60.0) * 10000000);
+	// 	_gps_position->alt = static_cast<int>(alt * 1000);
+	// 	_gps_position->satellites_used = num_of_sv;
+	// 	_gps_position->hdop = (float)hdop ;
+	// 	_rate_count_lat_lon++;
+		
+	// 	if (fix_quality <= 0) {
+	// 		_gps_position->fix_type = 0;
+
+	// 	} else {
+	// 		/*
+	// 		 * in this NMEA message float integers (value 5) mode has higher value than fixed integers (value 4), whereas it provides lower quality,
+	// 		 * and since value 3 is not being used, I "moved" value 5 to 3 to add it to _gps_position->fix_type
+	// 		 */
+	// 		if (fix_quality == 5) { fix_quality = 3; }
+
+	// 		/*
+	// 		 * fix quality 1 means just a normal 3D fix, so I'm subtracting 1 here. This way we'll have 3 for auto, 4 for DGPS, 5 for floats, 6 for fixed.
+	// 		 */
+	// 		_gps_position->fix_type = 3 + fix_quality - 1;
+	// 	}
+
+	// 	_gps_position->timestamp = gps_absolute_time();
+
+	// 	_gps_position->vel_m_s = 0;                                  /**< GPS ground speed (m/s) */
+	// 	_gps_position->vel_n_m_s = 0;                                /**< GPS ground speed in m/s */
+	// 	_gps_position->vel_e_m_s = 0;                                /**< GPS ground speed in m/s */
+	// 	_gps_position->vel_d_m_s = 0;                                /**< GPS ground speed in m/s */
+	// 	_gps_position->cog_rad =
+	// 		0;                                  /**< Course over ground (NOT heading, but direction of movement) in rad, -PI..PI */
+	// 	_gps_position->vel_ned_valid = true;                         /**< Flag to indicate if NED speed is valid */
+	// 	_gps_position->c_variance_rad = 0.1f;
+	// 	ret = 1;
 	
-	} else if ((memcmp(_rx_buffer + 3, "GST,", 3) == 0) && (uiCalcComma == 8)) {
+	// }
+	 else if ((memcmp(_rx_buffer + 3, "GST,", 3) == 0) && (uiCalcComma == 8)) {
 		//PX4_ERR("gst");
 		/*
 		  Position error statistics
@@ -315,7 +481,7 @@ int GPSDriverAshtech::handleMessage(int len)
 		_gps_position->s_variance_m_s = 0;
 
 	} else if ((memcmp(_rx_buffer + 3, "HDT,", 2) == 0)) {
-		//PX4_ERR("HDT");
+		PX4_ERR("HDT");
 		/*
 		Heading message
 		Example $GPHDT,121.2,T*35
