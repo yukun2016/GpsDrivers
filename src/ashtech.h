@@ -47,7 +47,7 @@ class GPSDriverAshtech : public GPSHelper
 {
 public:
 	GPSDriverAshtech(GPSCallbackPtr callback, void *callback_user, struct vehicle_gps_position_s *gps_position,
-			 struct satellite_info_s *satellite_info);
+			 struct satellite_info_s *satellite_info, float heading_offset = 0.f);
 	virtual ~GPSDriverAshtech() = default;
 
 	int receive(unsigned timeout);
@@ -84,5 +84,7 @@ private:
 	bool _parse_error{}; /**< parse error flag */
 	char *_parse_pos{}; /**< parse position */
 	orb_advert_t	_mavlink_log_pub;
+
+	float _heading_offset;
 };
 
