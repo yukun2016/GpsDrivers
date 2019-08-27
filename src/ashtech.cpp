@@ -44,9 +44,9 @@ GPSDriverAshtech::GPSDriverAshtech(GPSCallbackPtr callback, void *callback_user,
 				   struct satellite_info_s *satellite_info, float heading_offset) :
 	GPSHelper(callback, callback_user),
 	_satellite_info(satellite_info),
-	_gps_position(gps_position),
-	_heading_offset(heading_offset),
-	_mavlink_log_pub(nullptr)
+	_gps_position(gps_position),	
+	_mavlink_log_pub(nullptr),
+	_heading_offset(heading_offset)
 {
 	decodeInit();
 	_decode_state = NME_DECODE_UNINIT;
@@ -168,16 +168,16 @@ int GPSDriverAshtech::handleMessage(int len)
 		double lat = 0.0, lon = 0.0, alt = 0.0;
 		double separation __attribute__((unused)) = 0,
 		trackingAngle __attribute__((unused)) = 0,
-		heading __attribute__((unused)) = 0,//will be use
 		pitch __attribute__((unused)) = 0,
 		roll __attribute__((unused)) = 0,
 		ve = 0.0, vn = 0.0, vu = 0.0,vg = 0.0;
 		int status1 = 0,
-		status2 __attribute__((unused)) = 0,
 		systemMask __attribute__((unused)) = 0;
 		double baseline __attribute__((unused)) = 0;
 		char svUsed[5] = {0};
 		char svTracked[5] __attribute__((unused)) = {0};
+		float 	heading = 0;
+	 	char status2[2] = {0};
 
 		if (bufptr && *(++bufptr) != ',') { sinan_date = strtod(bufptr, &endp); bufptr = endp; }
 
@@ -215,7 +215,8 @@ int GPSDriverAshtech::handleMessage(int len)
 
 		if (bufptr && *(++bufptr) != ',') { status1 = strtod(bufptr, &endp); bufptr = endp; }
 
-		if (bufptr && *(++bufptr) != ',') { status2 = strtod(bufptr, &endp); bufptr = endp; }
+		if (bufptr && *(++bufptr) != ',') { status2[0] = *(bufptr++); }
+		if (bufptr && *(++bufptr) != ',') { status2[1] = *(bufptr++); }		
 
 		if (bufptr && *(++bufptr) != ',') { baseline = strtod(bufptr, &endp); bufptr = endp; }
 
@@ -282,14 +283,22 @@ int GPSDriverAshtech::handleMessage(int len)
 
 		_last_timestamp_time = gps_absolute_time();
 		_gps_position->timestamp = gps_absolute_time();
-		heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
-		heading -= _heading_offset; // range: [-pi, 3pi]
+		if((status2[0] == 'N')&&(status2[1] == 'V'))
+		{
+			heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
+			heading -= _heading_offset; // range: [-pi, 3pi]
 
-		if (heading > M_PI_F) {
-			heading -= 2.f * M_PI_F; // final range is [-pi, pi]
+			if (heading > M_PI_F) {
+				heading -= 2.f * M_PI_F; // final range is [-pi, pi]
+			}
+
+			_gps_position->heading = heading;
 		}
-
-		_gps_position->heading = heading;
+		else 
+		{
+			_gps_position->heading = NAN;
+		}
+		
 
 //lat lon alt
 		_gps_position->lat = static_cast<int>((lat) * 10000000);
