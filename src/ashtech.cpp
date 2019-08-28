@@ -216,7 +216,7 @@ int GPSDriverAshtech::handleMessage(int len)
 		if (bufptr && *(++bufptr) != ',') { status1 = strtod(bufptr, &endp); bufptr = endp; }
 
 		if (bufptr && *(++bufptr) != ',') { status2[0] = *(bufptr++); }
-		if (bufptr && *(++bufptr) != ',') { status2[1] = *(bufptr++); }		
+		status2[1] = *(bufptr++);
 
 		if (bufptr && *(++bufptr) != ',') { baseline = strtod(bufptr, &endp); bufptr = endp; }
 
@@ -231,7 +231,7 @@ int GPSDriverAshtech::handleMessage(int len)
 		if (bufptr && *(++bufptr) != ',') { svUsed[4]  = strtod(bufptr, &endp); bufptr = endp; }
 
 //time set
-		
+		//PX4_ERR("%d,%d",status2[0],status2[1]);
 		int sinan_year = static_cast<int>(sinan_date / 10000);
 		int sinan_mon = static_cast<int>((sinan_date %10000) / 100);
 		int sinan_day = static_cast<int>((sinan_date %100));
@@ -285,6 +285,7 @@ int GPSDriverAshtech::handleMessage(int len)
 		_gps_position->timestamp = gps_absolute_time();
 		if((status2[0] == 'N')&&(status2[1] == 'V'))
 		{
+			//PX4_ERR("---%0.3f",(double)heading);
 			heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
 			heading -= _heading_offset; // range: [-pi, 3pi]
 
@@ -293,6 +294,7 @@ int GPSDriverAshtech::handleMessage(int len)
 			}
 
 			_gps_position->heading = heading;
+			//PX4_ERR(":%0.3f",(double)heading);
 		}
 		else 
 		{
