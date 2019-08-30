@@ -176,8 +176,8 @@ int GPSDriverAshtech::handleMessage(int len)
 		double baseline __attribute__((unused)) = 0;
 		char svUsed[5] = {0};
 		char svTracked[5] __attribute__((unused)) = {0};
-		float 	heading = 0;
-	 	char status2[2] = {0};
+		float 	heading __attribute__((unused)) = 0;
+	 	char status2[2]__attribute__((unused)) = {0};
 
 		if (bufptr && *(++bufptr) != ',') { sinan_date = strtod(bufptr, &endp); bufptr = endp; }
 
@@ -283,23 +283,23 @@ int GPSDriverAshtech::handleMessage(int len)
 
 		_last_timestamp_time = gps_absolute_time();
 		_gps_position->timestamp = gps_absolute_time();
-		if((status2[0] == 'N')&&(status2[1] == 'V'))
-		{
-			//PX4_ERR("---%0.3f",(double)heading);
-			heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
-			heading -= _heading_offset; // range: [-pi, 3pi]
+		// if((status2[0] == 'N')&&(status2[1] == 'V'))
+		// {
+		// 	//PX4_ERR("---%0.3f",(double)heading);
+		// 	heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
+		// 	heading -= _heading_offset; // range: [-pi, 3pi]
 
-			if (heading > M_PI_F) {
-				heading -= 2.f * M_PI_F; // final range is [-pi, pi]
-			}
+		// 	if (heading > M_PI_F) {
+		// 		heading -= 2.f * M_PI_F; // final range is [-pi, pi]
+		// 	}
 
-			_gps_position->heading = heading;
-			//PX4_ERR(":%0.3f",(double)heading);
-		}
-		else 
-		{
-			_gps_position->heading = NAN;
-		}
+		// 	_gps_position->heading = heading;
+		// 	//PX4_ERR(":%0.3f",(double)heading);
+		// }
+		// else 
+		// {
+		// 	_gps_position->heading = NAN;
+		// }
 		
 
 //lat lon alt
@@ -339,6 +339,47 @@ int GPSDriverAshtech::handleMessage(int len)
 		
 		_gps_position->c_variance_rad = 0.1f;
 		ret = 1;
+
+	}
+	else if ((memcmp(_rx_buffer, "$GPTRA,", 6) == 0) && (uiCalcComma == 8) ) {
+		//PX4_ERR("GPTRA");
+		
+		double sinan_utc __attribute__((unused)) = 0;
+		float 	sinna_heading = 0,
+		sinan_pitch __attribute__((unused)) = 0,
+		sinan_roll __attribute__((unused)) = 0;
+	 	char sinan_status = 0;
+
+		if (bufptr && *(++bufptr) != ',') { sinan_utc = strtod(bufptr, &endp); bufptr = endp; }
+
+	
+		if (bufptr && *(++bufptr) != ',') { sinna_heading = strtod(bufptr, &endp); bufptr = endp; }
+
+
+		if (bufptr && *(++bufptr) != ',') { sinan_pitch = strtod(bufptr, &endp); bufptr = endp; }
+
+		if (bufptr && *(++bufptr) != ',') { sinan_roll = strtod(bufptr, &endp); bufptr = endp; }
+		
+		if (bufptr && *(++bufptr) != ',') { sinan_status = *(bufptr++); }
+		
+		if(sinan_status == '4')
+		{
+			PX4_ERR("---%0.3f",(double)sinna_heading);
+			sinna_heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
+			sinna_heading -= _heading_offset; // range: [-pi, 3pi]
+
+			if (sinna_heading > M_PI_F) {
+				sinna_heading -= 2.f * M_PI_F; // final range is [-pi, pi]
+			}
+
+			_gps_position->heading = sinna_heading;
+			PX4_ERR(":%0.3f",(double)sinna_heading);
+		}
+		else 
+		{
+			_gps_position->heading = NAN;
+			PX4_ERR("%d",sinan_status);
+		}		
 
 	}
 	// else if ((memcmp(_rx_buffer + 3, "GGA,", 3) == 0) && (uiCalcComma == 14) && !_got_pashr_pos_message) {
@@ -500,32 +541,33 @@ int GPSDriverAshtech::handleMessage(int len)
 
 		_gps_position->s_variance_m_s = 0;
 
-	} else if ((memcmp(_rx_buffer + 3, "HDT,", 2) == 0)) {
-		PX4_ERR("HDT");
-		/*
-		Heading message
-		Example $GPHDT,121.2,T*35
+	} 
+	// else if ((memcmp(_rx_buffer + 3, "HDT,", 2) == 0)) {
+	// 	PX4_ERR("HDT");
+	// 	/*
+	// 	Heading message
+	// 	Example $GPHDT,121.2,T*35
 
-		f1 Last computed heading value, in degrees (0-359.99)
-		T “T” for “True”
-		 */
+	// 	f1 Last computed heading value, in degrees (0-359.99)
+	// 	T “T” for “True”
+	// 	 */
 
-		float heading = 0.f;
+	// 	float heading = 0.f;
 
-		if (bufptr && *(++bufptr) != ',') {
-			heading = strtof(bufptr, &endp); bufptr = endp;
+	// 	if (bufptr && *(++bufptr) != ',') {
+	// 		heading = strtof(bufptr, &endp); bufptr = endp;
 			
-			heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
-			// heading -= _heading_offset; // range: [-pi, 3pi]
+	// 		heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
+	// 		// heading -= _heading_offset; // range: [-pi, 3pi]
 
-			if (heading > M_PI_F) {
-				heading -= 2.f * M_PI_F; // final range is [-pi, pi]
-			}
+	// 		if (heading > M_PI_F) {
+	// 			heading -= 2.f * M_PI_F; // final range is [-pi, pi]
+	// 		}
 
-			//_gps_position->heading = heading;
-		}
+	// 		//_gps_position->heading = heading;
+	// 	}
 
-	}
+	// }
 
 	//}else if ((memcmp(_rx_buffer + 3, "GSV,", 3) == 0)) {
 	// 	PX4_ERR("gsv");
