@@ -364,7 +364,7 @@ int GPSDriverAshtech::handleMessage(int len)
 		
 		if(sinan_status == '4')
 		{
-			PX4_ERR("---%0.3f",(double)sinna_heading);
+			//PX4_ERR("---%0.3f",(double)sinna_heading);
 			sinna_heading *= M_PI_F / 180.0f; // deg to rad, now in range [0, 2pi]
 			sinna_heading -= _heading_offset; // range: [-pi, 3pi]
 
@@ -373,12 +373,12 @@ int GPSDriverAshtech::handleMessage(int len)
 			}
 
 			_gps_position->heading = sinna_heading;
-			PX4_ERR(":%0.3f",(double)sinna_heading);
+			//PX4_ERR(":%0.3f",(double)sinna_heading);
 		}
 		else 
 		{
 			_gps_position->heading = NAN;
-			PX4_ERR("%d",sinan_status);
+			//PX4_ERR("%d",sinan_status);
 		}		
 
 	}
@@ -661,10 +661,10 @@ int GPSDriverAshtech::handleMessage(int len)
 	// 		}
 	// 	}
 	//}
-	else 
-	{		
-		PX4_ERR("%c %c %c %c %c",_rx_buffer[0],_rx_buffer[1],_rx_buffer[2],_rx_buffer[3],_rx_buffer[4]);
-	}
+	// else 
+	// {		
+	// 	PX4_ERR("%c %c %c %c %c",_rx_buffer[0],_rx_buffer[1],_rx_buffer[2],_rx_buffer[3],_rx_buffer[4]);
+	// }
 
 	if (ret > 0) {
 		_gps_position->timestamp_time_relative = (int32_t)(_last_timestamp_time - _gps_position->timestamp);
