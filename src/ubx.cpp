@@ -87,8 +87,7 @@ GPSDriverUBX::GPSDriverUBX(Interface gpsInterface, GPSCallbackPtr callback, void
 	, _interface(gpsInterface)
 	, _survey_in_acc_limit(UBX_TX_CFG_TMODE3_SVINACCLIMIT)
 	, _survey_in_min_dur(UBX_TX_CFG_TMODE3_SVINMINDUR)
-	, _dyn_model(dynamic_model)
-	,_mavlink_log_pub(nullptr)
+	, _dyn_model(dynamic_model)	
 {
 	decodeInit();
 }
@@ -122,9 +121,7 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 	//WARN  VER ext "                  PROTVER=20.00"
 	//However this is a string and it is not well documented, that PROTVER is always contained. Maybe there is a
 	//better way to check the protocol version?
-
-	mavlink_log_info(&_mavlink_log_pub, "in:%d",in_proto_mask);
-	mavlink_log_info(&_mavlink_log_pub, "out:%d",out_proto_mask);
+	
 	if (_interface == Interface::UART) {
 		for (baud_i = 0; baud_i < sizeof(baudrates) / sizeof(baudrates[0]); baud_i++) {
 			baudrate = baudrates[baud_i];
@@ -133,8 +130,7 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 			/* flush input and wait for at least 20 ms silence */
 			decodeInit();
 			receive(20);
-			decodeInit();
-			mavlink_log_info(&_mavlink_log_pub, "band:%d",baudrate);
+			decodeInit();			
 			/* Send a CFG-PRT message to set the UBX protocol for in and out
 			 * and leave the baudrate as it is, we just want an ACK-ACK for this */
 			memset(cfg_prt, 0, 2 * sizeof(ubx_payload_tx_cfg_prt_t));
@@ -152,12 +148,12 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 			if (!sendMessage(UBX_MSG_CFG_PRT, (uint8_t *)cfg_prt, 2 * sizeof(ubx_payload_tx_cfg_prt_t))) {
 				continue;
 			}
-			mavlink_log_info(&_mavlink_log_pub, "1");
+			
 			if (waitForAck(UBX_MSG_CFG_PRT, UBX_CONFIG_TIMEOUT, false) < 0) {
 				/* try next baudrate */
 				continue;
 			}
-			mavlink_log_info(&_mavlink_log_pub, "2");
+
 			/* Send a CFG-PRT message again, this time change the baudrate */
 			memset(cfg_prt, 0, 2 * sizeof(ubx_payload_tx_cfg_prt_t));
 			cfg_prt[0].portID		= UBX_TX_CFG_PRT_PORTID;
@@ -170,7 +166,7 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 			cfg_prt[1].baudRate	= UBX_TX_CFG_PRT_BAUDRATE;
 			cfg_prt[1].inProtoMask	= in_proto_mask;
 			cfg_prt[1].outProtoMask	= out_proto_mask;
-			mavlink_log_info(&_mavlink_log_pub, "3");
+			
 			if (!sendMessage(UBX_MSG_CFG_PRT, (uint8_t *)cfg_prt, 2 * sizeof(ubx_payload_tx_cfg_prt_t))) {
 				continue;
 			}
@@ -182,7 +178,7 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 				setBaudrate(UBX_TX_CFG_PRT_BAUDRATE);
 				baudrate = UBX_TX_CFG_PRT_BAUDRATE;
 			}
-			mavlink_log_info(&_mavlink_log_pub, "4");
+			
 			/* at this point we have correct baudrate on both ends */
 			break;
 		}
@@ -218,11 +214,11 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 	if (!sendMessage(UBX_MSG_CFG_RATE, (uint8_t *)&_buf, sizeof(_buf.payload_tx_cfg_rate))) {
 		return -1;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "5");
+	
 	if (waitForAck(UBX_MSG_CFG_RATE, UBX_CONFIG_TIMEOUT, true) < 0) {
 		return -1;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "6");
+	
 	if (output_mode != OutputMode::GPS) {
 		// RTCM mode force stationary dynamic model
 		_dyn_model = 2;
@@ -237,11 +233,11 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 	if (!sendMessage(UBX_MSG_CFG_NAV5, (uint8_t *)&_buf, sizeof(_buf.payload_tx_cfg_nav5))) {
 		return -1;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "7");
+	
 	if (waitForAck(UBX_MSG_CFG_NAV5, UBX_CONFIG_TIMEOUT, true) < 0) {
 		return -1;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "8");
+	
 #ifdef UBX_CONFIGURE_SBAS
 	/* send a SBAS message to set the SBAS options */
 	memset(&_buf.payload_tx_cfg_sbas, 0, sizeof(_buf.payload_tx_cfg_sbas));
@@ -250,11 +246,11 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 	if (!sendMessage(UBX_MSG_CFG_SBAS, (uint8_t *)&_buf, sizeof(_buf.payload_tx_cfg_sbas))) {
 		return -1;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "9");
+	
 	if (waitForAck(UBX_MSG_CFG_SBAS, UBX_CONFIG_TIMEOUT, true) < 0) {
 		return -1;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "10");
+	
 #endif
 
 	/* configure message rates */
@@ -265,14 +261,14 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 	if (!configureMessageRate(UBX_MSG_NAV_PVT, 1)) {
 		return -1;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "11");
+	
 	if (waitForAck(UBX_MSG_CFG_MSG, UBX_CONFIG_TIMEOUT, true) < 0) {
 		_use_nav_pvt = false;
 
 	} else {
 		_use_nav_pvt = true;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "12");
+	
 	UBX_DEBUG("%susing NAV-PVT", _use_nav_pvt ? "" : "not ");
 	
 	if (!_use_nav_pvt) {
@@ -292,19 +288,19 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 			return -1;
 		}
 	}
-	mavlink_log_info(&_mavlink_log_pub, "13");
+	
 	if (!configureMessageRateAndAck(UBX_MSG_NAV_DOP, 1, true)) {
 		return -1;
 	}
-	// mavlink_log_info(&_mavlink_log_pub, "14");
+	
 	// if (!configureMessageRateAndAck(UBX_MSG_NAV_SVINFO, (_satellite_info != nullptr) ? 5 : 0, true)) {
 	// 	return -1;
 	// }
-	mavlink_log_info(&_mavlink_log_pub, "16");
+	
 	if (!configureMessageRateAndAck(UBX_MSG_MON_HW, 1, true)) {
 		return -1;
 	}
-	mavlink_log_info(&_mavlink_log_pub, "17");
+	
 	/* request module version information by sending an empty MON-VER message */
 	if (!sendMessage(UBX_MSG_MON_VER, nullptr, 0)) {
 		return -1;
@@ -315,7 +311,7 @@ GPSDriverUBX::configure(unsigned &baudrate, OutputMode output_mode)
 			return -1;
 		}
 	}
-	mavlink_log_info(&_mavlink_log_pub, "18");
+	
 	_configured = true;
 	return 0;
 }
